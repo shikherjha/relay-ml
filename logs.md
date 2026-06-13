@@ -28,3 +28,21 @@ This file records implementation decisions and progress so future work can resum
 - GitHub repo only had remote branch `feat/ml-health`; no remote `main` branch existed yet.
 - Plan: create a clean `main` baseline, create a PR-ready branch from it, replay Phase 1 changes there, then open a PR into `main`.
 - Created draft PR: https://github.com/shikherjha/relay-ml/pull/1
+
+## 2026-06-14 - Phase 2 Dataset Setup
+
+- Started Phase 2 on branch `feat/ml-dataset`, based on the Phase 1 PR branch so the FastAPI skeleton remains available.
+- Avoiding the Phase 1 mistake of using default `python`; all commands should use the Python 3.12 venv at `.venv`.
+- Phase 2 goal: make dataset acquisition reproducible without committing raw datasets to git.
+- Plan: add dataset-specific requirements, a download script, a dataset inventory template, and precise README steps for Hugging Face + Kaggle.
+- Added `requirements-data.txt`, `scripts/download_datasets.py`, `scripts/inspect_fit_dataset.py`, and `data/dataset_manifest.example.json`.
+- Installed Phase 2 optional dependencies successfully in the Python 3.12 venv.
+- Downloaded Kaggle clothing fit dataset successfully through `kagglehub`.
+- Wrote local ignored manifest at `data/dataset_manifest.json`.
+- Inspected fit datasets:
+  - `modcloth_final_data.json`: 82,790 rows; fit 56,757; large 13,059; small 12,974.
+  - `renttherunway_final_data.json`: 192,544 rows; fit 142,058; small 25,779; large 24,707.
+- Checked Hugging Face dataset file list successfully: 6,034 files.
+- Hugging Face full image download partially completed, then failed due to `cas-bridge.xethub.hf.co` read timeout / DNS resolution failure.
+- Local partial HF folder currently has 918 files; rerun `scripts/download_datasets.py --dataset hf-defects --max-workers 1` or `--max-workers 4` to resume.
+- Updated downloader to support `--max-workers` and to merge dataset manifest records instead of overwriting existing successful entries.

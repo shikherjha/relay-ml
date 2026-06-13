@@ -18,6 +18,17 @@ Implemented:
 The current `models/grade_cnn_v1.pt` file is a placeholder. Replace it with
 trained weights in the CNN phase.
 
+## Phase 2 Dataset Setup
+
+Dataset acquisition is scripted but raw data is intentionally ignored by git.
+
+```bash
+.venv\Scripts\python.exe -m pip install -r requirements-data.txt
+.venv\Scripts\python.exe scripts\download_datasets.py --dataset all
+```
+
+See `data/README.md` for dataset-specific notes and credential handling.
+
 ## Run Locally
 
 ```bash

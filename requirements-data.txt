@@ -1,0 +1,7 @@
+# Optional dependencies for Phase 2 dataset acquisition.
+# Install with:
+#   .venv\Scripts\python.exe -m pip install -r requirements-data.txt
+
+huggingface_hub==0.27.1
+kagglehub==0.3.6
+pandas==2.2.3

@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-06-14T00:00:00+00:00",
+  "datasets": [
+    {
+      "name": "AI-generated e-commerce defect images",
+      "source": "https://huggingface.co/datasets/prajwalkothwal/ai-generated-ecommerce-images",
+      "local_path": "data/raw/hf_ecommerce_defects",
+      "downloaded_at": "2026-06-14T00:00:00+00:00",
+      "status": "pending",
+      "notes": "Used for grade CNN baseline, defect labels, and demo-grade images."
+    },
+    {
+      "name": "Clothing fit dataset for size recommendation",
+      "source": "https://www.kaggle.com/datasets/rmisra/clothing-fit-dataset-for-size-recommendation",
+      "local_path": "KaggleHub cache path",
+      "downloaded_at": "2026-06-14T00:00:00+00:00",
+      "status": "pending",
+      "notes": "Used for fit flags and size signals."
+    }
+  ]
+}

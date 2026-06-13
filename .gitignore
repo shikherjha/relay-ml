@@ -8,6 +8,7 @@ __pycache__/
 # Git LFS or release artifacts are configured.
 data/raw/
 data/processed/
+data/dataset_manifest.json
 training/datasets/
 *.ckpt
 *.pth
