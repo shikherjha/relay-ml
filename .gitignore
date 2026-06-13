@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+
+# Model and data artifacts can get large. Keep tiny placeholders only unless
+# Git LFS or release artifacts are configured.
+data/raw/
+data/processed/
+training/datasets/
+*.ckpt
+*.pth
