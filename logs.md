@@ -21,3 +21,9 @@ This file records implementation decisions and progress so future work can resum
 - Ran `.venv\Scripts\python.exe -m pytest`: `1 passed`.
 - Ran app import check: `Relay ML Service`.
 - Added `.gitignore` so `.venv`, caches, raw datasets, and large training artifacts are not committed by accident.
+
+## 2026-06-14 - PR Setup Note
+
+- User asked Codex to open the Phase 1 PR.
+- GitHub repo only had remote branch `feat/ml-health`; no remote `main` branch existed yet.
+- Plan: create a clean `main` baseline, create a PR-ready branch from it, replay Phase 1 changes there, then open a PR into `main`.
