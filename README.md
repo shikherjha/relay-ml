@@ -30,6 +30,9 @@ Controlled by `GRADING_MODE` env var:
 | `cnn` | Local MobileNetV3 CNN, escalates to Bedrock on low confidence |
 | `mock` | Deterministic stub (no AI) for relay-api local dev |
 
+All modes work for both image and video grading. In `bedrock_only` mode, video
+keyframes are sent as a single multi-image Bedrock call for holistic assessment.
+
 ## Quick Start
 
 ```bash
@@ -108,6 +111,19 @@ models/grade_cnn_v1.metadata.json
 models/label_map.json
 ```
 
+### Wish-score model (tracked)
+
+```text
+models/wish_logreg_v1.pkl             (749 bytes, sklearn LogisticRegression)
+models/wish_logreg_v1.metadata.json   (training metadata + coefficients)
+```
+
+Trained on 2000 synthetic samples, 84.25% test accuracy. Retrain with:
+
+```bash
+.venv\Scripts\python.exe scripts/train_wish_score.py
+```
+
 ## Embedding Backends
 
 | Setting | Backend | Torch needed? |
@@ -140,4 +156,7 @@ For lightweight builds without torch (Bedrock-only mode), see `HANDOFF.md`.
 
 - `HANDOFF.md` — full integration details, endpoint contracts, caveats
 - `models/README.md` — model artifact documentation
+- `scripts/train_wish_score.py` — retrain wish-score logistic regression
+- `scripts/test_full.py` — full endpoint test harness
+- `scripts/run_tests_now.py` — quick live test with real files
 
