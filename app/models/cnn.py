@@ -163,7 +163,8 @@ def _import_torch() -> Any:
         import torch
     except ImportError as exc:
         raise RuntimeError(
-            "PyTorch is not installed. Install requirements.txt before CNN inference."
+            "CNN grading disabled — relay-ml runs bedrock_only and ships without "
+            "torch. Set GRADING_MODE=cnn and install torch/timm to use the local CNN."
         ) from exc
     return torch
 
@@ -174,7 +175,8 @@ def _import_timm() -> Any:
         import timm
     except ImportError as exc:
         raise RuntimeError(
-            "timm is not installed. Install requirements.txt before CNN inference."
+            "CNN grading disabled — relay-ml runs bedrock_only and ships without "
+            "timm. Set GRADING_MODE=cnn and install torch/timm to use the local CNN."
         ) from exc
     return timm
 

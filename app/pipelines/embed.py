@@ -28,12 +28,23 @@ class EmbeddingUnavailable(Exception):
 
 @lru_cache(maxsize=1)
 def _load_local_model():
-    """Load the sentence-transformer model once and cache it."""
+    """Load the sentence-transformer model once and cache it.
+
+    Lazy import: relay-ml runs EMBEDDING_MODEL=bedrock-titan and ships without
+    sentence-transformers/torch, so this path is never taken in normal operation.
+    It raises a clear error if invoked (e.g. EMBEDDING_MODEL left as local).
+    """
     try:
         from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise EmbeddingUnavailable(
+            "Local embeddings disabled — relay-ml runs EMBEDDING_MODEL=bedrock-titan "
+            "and ships without sentence-transformers/torch. Set EMBEDDING_MODEL="
+            "bedrock-titan, or install sentence-transformers to use local embeddings."
+        ) from exc
 
-        model = SentenceTransformer(f"sentence-transformers/{_MODEL_NAME_LOCAL}")
-        return model
+    try:
+        return SentenceTransformer(f"sentence-transformers/{_MODEL_NAME_LOCAL}")
     except Exception as exc:
         raise EmbeddingUnavailable(
             f"Failed to load embedding model '{_MODEL_NAME_LOCAL}': {exc}"
