@@ -3,20 +3,22 @@
 Bhavya-owned perception service for Relay. This service exposes image/video
 grading and fit-intelligence endpoints used by `relay-api`.
 
-## Phase 1 Status
+## Current Status
 
 Implemented:
 
 - FastAPI app skeleton
 - `GET /health`
 - Pydantic schema mirrors for `ConditionPassport`
-- Placeholder grading routes
-- Simple T1-style `/fit-flags` rules endpoint
+- CNN-backed `POST /grade-image`
+- Keyframe-aggregated `POST /grade-video`
+- Aggregate-backed `/fit-flags` with rules fallback
 - Dockerfile and environment template
-- Basic health test
+- Health, hash, image, video, and fit tests
 
-The current `models/grade_cnn_v1.pt` file is a placeholder. Replace it with
-trained weights in the CNN phase.
+The current local model artifact is `models/grade_cnn_v1.pt`. It is required
+for real CNN inference but is intentionally ignored by git until Git LFS or
+release artifact storage is configured.
 
 ## Phase 2 Dataset Setup
 
@@ -28,6 +30,34 @@ Dataset acquisition is scripted but raw data is intentionally ignored by git.
 ```
 
 See `data/README.md` for dataset-specific notes and credential handling.
+
+## Model Artifacts
+
+Tracked:
+
+- `models/grade_cnn_v1.metadata.json`
+- `models/label_map.json`
+
+Local-only unless Git LFS or release storage is configured:
+
+- `models/grade_cnn_v1.pt`
+
+Expected local artifact:
+
+```text
+models/grade_cnn_v1.pt
+size: 6,248,127 bytes
+architecture: mobilenetv3_small_100
+input_size: 224
+defect_labels: crack, damaged, other
+grade_labels: A+, A, B+, B, C, D
+```
+
+Health should report `model_loaded=true` when the checkpoint is present:
+
+```bash
+.venv\Scripts\python.exe -c "from app.main import health; print(health().model_loaded); print(health().model_bytes)"
+```
 
 ## Run Locally
 
@@ -44,6 +74,9 @@ Open:
 http://localhost:8001/health
 http://localhost:8001/docs
 ```
+
+For handoff details, endpoint smoke examples, and artifact notes, see
+`HANDOFF.md`.
 
 ## Test
 
@@ -66,13 +99,14 @@ Returns service and model-load status.
 
 ### `POST /fit-flags`
 
-Temporary rules endpoint for Phase 1/early T1.
+Returns aggregate-backed category fit flags when
+`data/processed/fit_aggregates.json` is present, with a rules fallback.
 
 ### `POST /grade-image`
 
-Placeholder in Phase 1. This will return a full `ConditionPassport` after image
-grading is implemented.
+Returns a CNN-backed `ConditionPassport` for JPEG/PNG images.
 
 ### `POST /grade-video`
 
-Placeholder in Phase 1. This will aggregate frame-level image grades.
+Extracts representative keyframes, grades each frame with the image pipeline,
+and returns a worst-frame aggregated `ConditionPassport`.

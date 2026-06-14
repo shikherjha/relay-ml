@@ -15,21 +15,36 @@ class Grade(str, Enum):
 
 
 class Defect(BaseModel):
-    type: str = Field(..., examples=["scuff", "crack", "stain", "missing_part"])
+    type: Literal[
+        "scuff",
+        "crack",
+        "stain",
+        "tear",
+        "dent",
+        "discoloration",
+        "missing_part",
+        "screen_damage",
+        "water_damage",
+        "functional_fault",
+        "other",
+    ] = Field(..., examples=["scuff", "crack", "stain", "missing_part"])
     severity: Literal["minor", "moderate", "major"]
     bbox: list[float] | None = Field(
         default=None,
         description="Optional [x, y, w, h] bounding box in image coordinates.",
     )
+    confidence: float = Field(..., ge=0.0, le=1.0)
     description: str | None = None
 
 
 class ConditionPassport(BaseModel):
+    schema_version: Literal["1.0.0"] = "1.0.0"
     unit_id: str
+    return_id: str | None = None
     grade: Grade
     grade_numeric: float = Field(..., ge=0.0, le=1.0)
     category: str
-    vertical: str
+    vertical: Literal["fashion", "electronics"]
     disposition_hint: Literal[
         "exchange",
         "rescue",
@@ -40,7 +55,7 @@ class ConditionPassport(BaseModel):
         "restock",
     ]
     defects: list[Defect] = Field(default_factory=list)
-    packaging_state: Literal["sealed", "opened", "damaged"]
+    packaging_state: Literal["sealed", "opened", "damaged", "missing"]
     confidence: float = Field(..., ge=0.0, le=1.0)
     media_hashes: list[str] = Field(default_factory=list)
     passport_hash: str

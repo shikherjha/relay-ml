@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     bedrock_model_t3: str = ""
     openai_api_key: str = ""
     cnn_model_path: Path = Path("./models/grade_cnn_v1.pt")
+    fit_aggregates_path: Path = Path("./data/processed/fit_aggregates.json")
     confidence_threshold_t2: float = 0.85
     confidence_threshold_t3: float = 0.75
 

@@ -1,0 +1,21 @@
+{
+  "model_name": "grade_cnn_v1",
+  "architecture": "mobilenetv3_small_100",
+  "input_size": 224,
+  "framework": "pytorch",
+  "best_val_defect_acc": 0.8939519469759735,
+  "defect_labels": [
+    "crack",
+    "damaged",
+    "other"
+  ],
+  "grade_labels": [
+    "A+",
+    "A",
+    "B+",
+    "B",
+    "C",
+    "D"
+  ],
+  "intended_model_tier_used": "cnn-v1"
+}

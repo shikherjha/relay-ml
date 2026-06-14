@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 .env
+logs.md
 
 # Model and data artifacts can get large. Keep tiny placeholders only unless
 # Git LFS or release artifacts are configured.
@@ -11,4 +12,7 @@ data/processed/
 data/dataset_manifest.json
 training/datasets/
 *.ckpt
+*.pt
 *.pth
+!models/*.metadata.json
+!models/label_map.json
