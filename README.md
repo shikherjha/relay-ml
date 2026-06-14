@@ -1,112 +1,143 @@
 # Relay ML
 
-Bhavya-owned perception service for Relay. This service exposes image/video
-grading and fit-intelligence endpoints used by `relay-api`.
+Bhavya-owned perception service for Relay. Grades returned products into a
+structured **ConditionPassport**, provides fit intelligence, embeddings for
+next-owner matching, and buyer-intent scoring.
 
 ## Current Status
 
-Implemented:
+**Fully functional** — all endpoints live, 55 tests passing.
 
-- FastAPI app skeleton
-- `GET /health`
-- Pydantic schema mirrors for `ConditionPassport`
-- CNN-backed `POST /grade-image`
-- Keyframe-aggregated `POST /grade-video`
-- Aggregate-backed `/fit-flags` with rules fallback
-- Dockerfile and environment template
-- Health, hash, image, video, and fit tests
+| Endpoint | Description | Status |
+|---|---|---|
+| `GET /health` | Liveness + model/mode status | ✅ |
+| `POST /grade-image` | Grade single image → ConditionPassport | ✅ |
+| `POST /grade-images` | Grade 1-8 multi-angle images → ConditionPassport | ✅ |
+| `POST /grade-video` | Grade video via keyframe extraction | ✅ |
+| `POST /fit-flags` | Aggregate-backed fit flags | ✅ |
+| `POST /fit-flags/multi` | Bayesian MultiFlags from return counts | ✅ |
+| `POST /embed` | 384-d embedding vector | ✅ |
+| `POST /wish-score` | Buyer-intent confidence score (0–1) | ✅ |
+| `POST /return-clusters` | NLP clustering of return reasons | ✅ |
 
-The current local model artifact is `models/grade_cnn_v1.pt`. It is required
-for real CNN inference but is intentionally ignored by git until Git LFS or
-release artifact storage is configured.
+## Grading Modes
 
-## Phase 2 Dataset Setup
+Controlled by `GRADING_MODE` env var:
 
-Dataset acquisition is scripted but raw data is intentionally ignored by git.
+| Mode | Description |
+|---|---|
+| `bedrock_only` **(default)** | AWS Bedrock Nova Lite — most accurate, handles undamaged products correctly |
+| `cnn` | Local MobileNetV3 CNN, escalates to Bedrock on low confidence |
+| `mock` | Deterministic stub (no AI) for relay-api local dev |
 
-```bash
-.venv\Scripts\python.exe -m pip install -r requirements-data.txt
-.venv\Scripts\python.exe scripts\download_datasets.py --dataset all
-```
-
-See `data/README.md` for dataset-specific notes and credential handling.
-
-## Model Artifacts
-
-Tracked:
-
-- `models/grade_cnn_v1.metadata.json`
-- `models/label_map.json`
-
-Local-only unless Git LFS or release storage is configured:
-
-- `models/grade_cnn_v1.pt`
-
-Expected local artifact:
-
-```text
-models/grade_cnn_v1.pt
-size: 6,248,127 bytes
-architecture: mobilenetv3_small_100
-input_size: 224
-defect_labels: crack, damaged, other
-grade_labels: A+, A, B+, B, C, D
-```
-
-Health should report `model_loaded=true` when the checkpoint is present:
-
-```bash
-.venv\Scripts\python.exe -c "from app.main import health; print(health().model_loaded); print(health().model_bytes)"
-```
-
-## Run Locally
+## Quick Start
 
 ```bash
 py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+Create `.env` with your AWS credentials:
+
+```bash
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+GRADING_MODE=bedrock_only
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+```
+
+Run:
+
+```bash
 uvicorn app.main:app --reload --port 8001
 ```
 
-Open:
+Verify:
 
-```text
-http://localhost:8001/health
-http://localhost:8001/docs
+```bash
+# Health check
+curl http://localhost:8001/health
+
+# OpenAPI docs
+open http://localhost:8001/docs
 ```
-
-For handoff details, endpoint smoke examples, and artifact notes, see
-`HANDOFF.md`.
 
 ## Test
 
 ```bash
 .venv\Scripts\python.exe -m pytest
+# Expected: 55 passed
 ```
+
+Live product testing:
+
+```bash
+.venv\Scripts\python.exe scripts/run_tests_now.py
+```
+
+## Integration
+
+Set in downstream services:
+
+```
+ML_SERVICE_URL=http://localhost:8001
+```
+
+Embedding dimension: **384** (matches relay-api pgvector schema).
+
+## Model Artifacts
+
+### For Bedrock mode (default) — no local model needed
+
+Just AWS credentials with Bedrock Nova Lite enabled in us-east-1.
+
+### For CNN mode
+
+Local-only (git-ignored):
+
+```text
+models/grade_cnn_v1.pt     (6,248,127 bytes)
+```
+
+Tracked metadata:
+
+```text
+models/grade_cnn_v1.metadata.json
+models/label_map.json
+```
+
+## Embedding Backends
+
+| Setting | Backend | Torch needed? |
+|---|---|---|
+| `EMBEDDING_MODEL=all-MiniLM-L6-v2` | Local sentence-transformers | Yes |
+| `EMBEDDING_MODEL=bedrock-titan` | AWS Bedrock Titan V2 (512→384 truncated) | No |
+
+Both produce normalized 384-d vectors compatible with pgvector `VECTOR(384)`.
+
+## Dataset Setup (optional)
+
+```bash
+pip install -r requirements-data.txt
+python scripts/download_datasets.py --dataset all
+python scripts/build_fit_aggregates.py
+```
+
+See `data/README.md` for details.
 
 ## Docker
 
 ```bash
 docker build -t relay-ml .
-docker run --env-file .env.example -p 8001:8001 relay-ml
+docker run --env-file .env -p 8001:8001 relay-ml
 ```
 
-## API Contract
+For lightweight builds without torch (Bedrock-only mode), see `HANDOFF.md`.
 
-### `GET /health`
+## Docs
 
-Returns service and model-load status.
+- `HANDOFF.md` — full integration details, endpoint contracts, caveats
+- `models/README.md` — model artifact documentation
 
-### `POST /fit-flags`
-
-Returns aggregate-backed category fit flags when
-`data/processed/fit_aggregates.json` is present, with a rules fallback.
-
-### `POST /grade-image`
-
-Returns a CNN-backed `ConditionPassport` for JPEG/PNG images.
-
-### `POST /grade-video`
-
-Extracts representative keyframes, grades each frame with the image pipeline,
-and returns a worst-frame aggregated `ConditionPassport`.
