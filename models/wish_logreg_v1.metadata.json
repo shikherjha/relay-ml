@@ -1,0 +1,19 @@
+{
+  "model": "logreg_v1",
+  "features": [
+    "wish_age_days",
+    "user_purchase_count",
+    "category_affinity",
+    "has_fit_profile"
+  ],
+  "coefficients": [
+    -0.10452359284660843,
+    0.1368589373031429,
+    3.708369869191279,
+    1.7374111389416467
+  ],
+  "intercept": -0.7293173442150053,
+  "accuracy": 0.8425,
+  "n_train": 1600,
+  "n_test": 400
+}

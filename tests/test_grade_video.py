@@ -44,6 +44,10 @@ def _passport(
 
 def test_grade_video_aggregates_keyframe_results(monkeypatch) -> None:
     from app.pipelines import video_keyframes
+    from app.core import config
+
+    # Force CNN mode for this test (monkeypatches grade_image_bytes)
+    monkeypatch.setattr(config.settings, "grading_mode", "cnn")
 
     monkeypatch.setattr(
         video_keyframes,

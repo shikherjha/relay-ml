@@ -63,17 +63,28 @@ def grade_video_bytes(
     if not frame_images:
         raise VideoValidationError("No readable video frames were found.")
 
-    frame_passports = [
-        grade_image_bytes(
-            image_bytes=frame_bytes,
-            content_type="image/png",
-            unit_id=f"{unit_id}:frame:{index}",
+    # Route through Bedrock or CNN based on GRADING_MODE
+    from app.core.config import settings
+
+    if settings.grading_mode == "bedrock_only":
+        frame_passports = _grade_frames_bedrock(
+            frame_images=frame_images,
+            unit_id=unit_id,
             category=category,
             return_id=return_id,
-            model_path=model_path,
         )
-        for index, frame_bytes in enumerate(frame_images, start=1)
-    ]
+    else:
+        frame_passports = [
+            grade_image_bytes(
+                image_bytes=frame_bytes,
+                content_type="image/png",
+                unit_id=f"{unit_id}:frame:{index}",
+                category=category,
+                return_id=return_id,
+                model_path=model_path,
+            )
+            for index, frame_bytes in enumerate(frame_images, start=1)
+        ]
 
     return aggregate_frame_passports(
         frame_passports=frame_passports,
@@ -82,6 +93,49 @@ def grade_video_bytes(
         return_id=return_id,
         category=category,
     )
+
+
+def _grade_frames_bedrock(
+    *,
+    frame_images: list[bytes],
+    unit_id: str,
+    category: str,
+    return_id: str | None,
+) -> list[ConditionPassport]:
+    """Grade keyframes using Bedrock multi-image (all frames in one call)."""
+    from app.pipelines.bedrock_tiers import (
+        BedrockGradingError,
+        grade_bedrock_only,
+        grade_multi_image_bedrock,
+    )
+
+    try:
+        # Send all keyframes in one Bedrock call for holistic video assessment
+        passport = grade_multi_image_bedrock(
+            images=frame_images,
+            unit_id=unit_id,
+            category=category,
+            return_id=return_id,
+        )
+        # Return as a single-element list for aggregation compatibility
+        return [passport]
+    except BedrockGradingError:
+        # Fallback: grade each frame individually via Bedrock
+        passports = []
+        for i, frame_bytes in enumerate(frame_images, start=1):
+            try:
+                passport = grade_bedrock_only(
+                    image_bytes=frame_bytes,
+                    unit_id=f"{unit_id}:frame:{i}",
+                    category=category,
+                    return_id=return_id,
+                )
+                passports.append(passport)
+            except BedrockGradingError:
+                continue
+        if not passports:
+            raise VideoGradingUnavailable("Bedrock grading failed for all keyframes.")
+        return passports
 
 
 def extract_keyframe_images(
