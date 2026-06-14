@@ -90,7 +90,24 @@ def grade_image_bytes(
         "repair_events": [],
     }
     body["passport_hash"] = passport_hash(body)
-    return ConditionPassport.model_validate(body)
+    passport = ConditionPassport.model_validate(body)
+
+    # Attempt Bedrock escalation if CNN confidence is low
+    try:
+        from app.pipelines.bedrock_tiers import escalate_if_needed
+
+        passport = escalate_if_needed(
+            cnn_passport=passport,
+            image_bytes=image_bytes,
+            unit_id=unit_id,
+            category=category,
+            return_id=return_id,
+        )
+    except Exception:
+        # Escalation failures are non-fatal; return CNN result
+        pass
+
+    return passport
 
 
 def _load_image(*, image_bytes: bytes, content_type: str | None):

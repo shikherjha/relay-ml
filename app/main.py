@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from app.core.config import settings
-from app.routers import fit, grade
+from app.routers import cluster, embed, fit, grade
 from app.schemas.passport import HealthResponse
 
 
@@ -32,6 +32,10 @@ def _model_status(model_path: Path) -> tuple[bool, int, list[str]]:
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     model_loaded, model_bytes, notes = _model_status(settings.cnn_model_path)
+    if settings.grading_mode == "bedrock_only":
+        notes.append("GRADING_MODE=bedrock_only — CNN bypassed; using Bedrock Nova Lite.")
+    elif settings.grading_mode == "mock":
+        notes.append("GRADING_MODE=mock — returning stub passports (no AI).")
     return HealthResponse(
         status="ok",
         model_loaded=model_loaded,
@@ -44,3 +48,5 @@ def health() -> HealthResponse:
 
 app.include_router(grade.router)
 app.include_router(fit.router)
+app.include_router(embed.router)
+app.include_router(cluster.router)

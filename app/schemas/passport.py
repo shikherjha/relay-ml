@@ -90,3 +90,34 @@ class FitFlagsResponse(BaseModel):
     sku_id: str
     flags: list[FitFlag]
     source: str = "rules_v1"
+
+
+# --- Embed schemas ---
+
+
+class EmbedRequest(BaseModel):
+    text: str | None = None
+    category: str | None = None
+    grade: str | None = None
+    size: str | None = None
+    vertical: str | None = None
+
+
+class EmbedResponse(BaseModel):
+    vector: list[float] = Field(..., min_length=384, max_length=384)
+    model: str
+
+
+# --- Wish score schemas ---
+
+
+class WishScoreRequest(BaseModel):
+    wish_age_days: float = Field(..., ge=0)
+    user_purchase_count: int = Field(..., ge=0)
+    category_affinity: float = Field(..., ge=0.0, le=1.0)
+    has_fit_profile: bool = False
+
+
+class WishScoreResponse(BaseModel):
+    score: float = Field(..., ge=0.0, le=1.0)
+    model: str = "logreg_v1"
