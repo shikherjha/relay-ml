@@ -121,3 +121,40 @@ class WishScoreRequest(BaseModel):
 class WishScoreResponse(BaseModel):
     score: float = Field(..., ge=0.0, le=1.0)
     model: str = "logreg_v1"
+
+
+# --- Grade-and-price schemas (Track B: resale grading) ---
+
+
+class PriceRange(BaseModel):
+    min: float = Field(..., gt=0)
+    max: float = Field(..., gt=0)
+
+
+class GradeAndPriceResponse(BaseModel):
+    """ConditionPassport + resale pricing fields."""
+
+    # Core ConditionPassport fields
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    unit_id: str
+    return_id: str | None = None
+    grade: Grade
+    grade_numeric: float = Field(..., ge=0.0, le=1.0)
+    category: str
+    vertical: Literal["fashion", "electronics"]
+    disposition_hint: Literal[
+        "exchange", "rescue", "p2p_resale", "refurb", "donate", "recycle", "restock",
+    ]
+    defects: list[Defect] = Field(default_factory=list)
+    packaging_state: Literal["sealed", "opened", "damaged", "missing"]
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    media_hashes: list[str] = Field(default_factory=list)
+    passport_hash: str = ""
+    graded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    model_tier_used: str
+
+    # Resale pricing fields (Track B)
+    resale_grade: Literal["Like New", "Very Good", "Good", "Acceptable"]
+    price_range: PriceRange
+    currency: str = "INR"
+    pricing_rationale: str
