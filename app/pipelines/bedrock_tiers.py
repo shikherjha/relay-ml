@@ -64,37 +64,34 @@ def grade_bedrock_only(
         # Build the prompt for structured grading
         prompt = _build_grading_prompt(category)
 
-        # Encode image for Bedrock
-        import base64
+        # Detect image format from bytes
+        image_format = "jpeg"  # default
+        if image_bytes[:8].startswith(b"\x89PNG\r\n\x1a\n"):
+            image_format = "png"
+        elif image_bytes[:2] in (b"\xff\xd8",):
+            image_format = "jpeg"
 
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-        # Call Nova Lite with the image
-        request_body = {
-            "messages": [
+        # Call Nova Lite with the image (raw bytes, not base64)
+        response = client.converse(
+            modelId=settings.bedrock_model_t1,
+            messages=[
                 {
                     "role": "user",
                     "content": [
                         {
                             "image": {
-                                "format": "png",
-                                "source": {"bytes": image_b64},
+                                "format": image_format,
+                                "source": {"bytes": image_bytes},
                             }
                         },
                         {"text": prompt},
                     ],
                 }
             ],
-            "inferenceConfig": {
+            inferenceConfig={
                 "maxTokens": 1024,
                 "temperature": 0.1,
             },
-        }
-
-        response = client.converse(
-            modelId=settings.bedrock_model_t1,
-            messages=request_body["messages"],
-            inferenceConfig=request_body["inferenceConfig"],
         )
 
         # Parse the structured response
@@ -104,6 +101,20 @@ def grade_bedrock_only(
         grade = parsed["grade"]
         defect_type = parsed["defect_type"]
         confidence = parsed["confidence"]
+        no_damage = parsed.get("no_damage", False)
+        description = parsed.get("description", "")
+
+        # Build defects list — empty if no damage detected
+        defects = []
+        if not no_damage:
+            defects = [
+                Defect(
+                    type=defect_type,
+                    severity=_severity_for_grade(grade),
+                    confidence=confidence,
+                    description=description or f"Bedrock Nova Lite detected {defect_type.replace('_', ' ')}.",
+                ).model_dump(mode="json")
+            ]
 
         body = {
             "schema_version": "1.0.0",
@@ -114,15 +125,8 @@ def grade_bedrock_only(
             "category": category.strip().lower().replace("-", "_").replace(" ", "_") or "unknown",
             "vertical": _infer_vertical(category),
             "disposition_hint": _disposition_for_grade(grade),
-            "defects": [
-                Defect(
-                    type=defect_type,
-                    severity=_severity_for_grade(grade),
-                    confidence=confidence,
-                    description=f"Bedrock Nova Lite detected {defect_type.replace('_', ' ')}.",
-                ).model_dump(mode="json")
-            ],
-            "packaging_state": "opened",
+            "defects": defects,
+            "packaging_state": "sealed" if grade in ("A+", "A") else "opened",
             "confidence": confidence,
             "media_hashes": [media_hash],
             "passport_hash": "",
@@ -186,11 +190,23 @@ def _build_grading_prompt(category: str) -> str:
     """Build the structured extraction prompt for Bedrock."""
     return f"""You are an AI product condition grader for a circular commerce platform.
 
-Analyze this product image (category: {category}) and return a JSON object with:
-- "grade": one of "A+", "A", "B+", "B", "C", "D" (A+ = pristine, D = heavily damaged)
-- "defect_type": one of "scuff", "crack", "stain", "tear", "dent", "discoloration", "missing_part", "screen_damage", "water_damage", "functional_fault", "other"
-- "confidence": float 0.0-1.0 how confident you are in the grade
-- "description": brief description of the product condition
+Analyze this product image (category: {category}) and assess its physical condition.
+
+Return a JSON object with these fields:
+- "grade": one of "A+", "A", "B+", "B", "C", "D"
+  - A+ = pristine/sealed, looks brand new, no visible wear
+  - A = like new, minimal signs of use
+  - B+ = good condition, light cosmetic wear only
+  - B = fair, visible wear but fully functional
+  - C = poor, significant damage or defects
+  - D = heavily damaged, may not be functional
+- "defect_type": one of "none", "scuff", "crack", "stain", "tear", "dent", "discoloration", "missing_part", "screen_damage", "water_damage", "functional_fault", "other"
+  - Use "none" if the product appears undamaged (grade A+ or A)
+- "confidence": float 0.0-1.0 how confident you are in your assessment
+- "description": brief description of the product condition (1-2 sentences)
+
+Important: If the product looks new or undamaged, grade it A+ or A with defect_type "none".
+Only report defects you can actually see in the image.
 
 Return ONLY valid JSON, no other text."""
 
@@ -198,24 +214,43 @@ Return ONLY valid JSON, no other text."""
 def _parse_grading_response(response_text: str, category: str) -> dict:
     """Parse the Bedrock response into structured fields."""
     try:
-        # Try to parse as JSON directly
-        data = json.loads(response_text.strip())
+        # Strip markdown code fences if present (Bedrock often wraps in ```json ... ```)
+        text = response_text.strip()
+        if text.startswith("```"):
+            first_newline = text.index("\n")
+            text = text[first_newline + 1:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+        data = json.loads(text)
         grade = data.get("grade", "B")
         if grade not in GRADE_NUMERIC:
             grade = "B"
         defect_type = data.get("defect_type", "other")
         valid_defects = {
-            "scuff", "crack", "stain", "tear", "dent", "discoloration",
+            "none", "scuff", "crack", "stain", "tear", "dent", "discoloration",
             "missing_part", "screen_damage", "water_damage", "functional_fault", "other"
         }
         if defect_type not in valid_defects:
             defect_type = "other"
+        # Map "none" to indicate no damage found
+        no_damage = defect_type == "none"
+        if no_damage:
+            defect_type = "other"
         confidence = float(data.get("confidence", 0.75))
         confidence = max(0.0, min(1.0, confidence))
-        return {"grade": grade, "defect_type": defect_type, "confidence": confidence}
+        description = data.get("description", "")
+        return {
+            "grade": grade,
+            "defect_type": defect_type,
+            "confidence": confidence,
+            "no_damage": no_damage,
+            "description": description,
+        }
     except (json.JSONDecodeError, TypeError, ValueError):
         # Fallback: return conservative defaults
-        return {"grade": "B", "defect_type": "other", "confidence": 0.6}
+        return {"grade": "B", "defect_type": "other", "confidence": 0.6, "no_damage": False, "description": ""}
 
 
 def _infer_vertical(category: str) -> str:
@@ -319,7 +354,6 @@ def _grade_with_bedrock(
     media_hash = sha256_hex(image_bytes)
 
     try:
-        import base64
         import boto3
 
         client = boto3.client(
@@ -328,7 +362,13 @@ def _grade_with_bedrock(
         )
 
         prompt = _build_grading_prompt(category)
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        # Detect image format from bytes
+        image_format = "jpeg"
+        if image_bytes[:8].startswith(b"\x89PNG\r\n\x1a\n"):
+            image_format = "png"
+        elif image_bytes[:2] in (b"\xff\xd8",):
+            image_format = "jpeg"
 
         response = client.converse(
             modelId=model_id,
@@ -338,8 +378,8 @@ def _grade_with_bedrock(
                     "content": [
                         {
                             "image": {
-                                "format": "png",
-                                "source": {"bytes": image_b64},
+                                "format": image_format,
+                                "source": {"bytes": image_bytes},
                             }
                         },
                         {"text": prompt},
@@ -396,3 +436,122 @@ def _grade_with_bedrock(
         raise
     except Exception as exc:
         raise BedrockGradingError(f"Bedrock {tier_label} grading failed: {exc}") from exc
+
+
+def grade_multi_image_bedrock(
+    *,
+    images: list[bytes],
+    unit_id: str,
+    category: str,
+    return_id: str | None,
+) -> ConditionPassport:
+    """Grade a product from multiple angle images in a single Bedrock call.
+
+    Sends all images together so the model can assess overall condition
+    from multiple perspectives. Worst defect wins (like video aggregation).
+    """
+    from app.core.config import settings
+
+    if not images:
+        raise BedrockGradingError("No images provided.")
+
+    # Compute media hashes for all images
+    media_hashes = [sha256_hex(img) for img in images]
+
+    try:
+        import boto3
+
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=settings.aws_region,
+        )
+
+        prompt = f"""You are an AI product condition grader for a circular commerce platform.
+
+You are shown {len(images)} images of the SAME product from different angles (category: {category}).
+Assess the overall condition considering ALL angles together.
+
+Return a JSON object with:
+- "grade": one of "A+", "A", "B+", "B", "C", "D"
+  - A+ = pristine/sealed, looks brand new from all angles
+  - A = like new, minimal signs of use across all views
+  - B+ = good condition, light cosmetic wear only
+  - B = fair, visible wear but fully functional
+  - C = poor, significant damage or defects visible
+  - D = heavily damaged, may not be functional
+- "defect_type": one of "none", "scuff", "crack", "stain", "tear", "dent", "discoloration", "missing_part", "screen_damage", "water_damage", "functional_fault", "other"
+  - Use "none" if the product appears undamaged from all angles
+  - Report the WORST defect if multiple are visible across different angles
+- "confidence": float 0.0-1.0 (higher with more angles confirming the assessment)
+- "description": brief description covering what you see across all angles
+
+Important: Multiple angles should INCREASE your confidence. If one angle shows damage not visible from others, report it.
+Only report defects you can actually see. If the product looks new from all angles, grade A+ or A with "none".
+
+Return ONLY valid JSON, no other text."""
+
+        # Build content array with all images + prompt
+        content = []
+        for img_bytes in images:
+            image_format = "jpeg"
+            if img_bytes[:8].startswith(b"\x89PNG\r\n\x1a\n"):
+                image_format = "png"
+            content.append(
+                {"image": {"format": image_format, "source": {"bytes": img_bytes}}}
+            )
+        content.append({"text": prompt})
+
+        response = client.converse(
+            modelId=settings.bedrock_model_t1,
+            messages=[{"role": "user", "content": content}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.1},
+        )
+
+        response_text = response["output"]["message"]["content"][0]["text"]
+        parsed = _parse_grading_response(response_text, category)
+
+        grade = parsed["grade"]
+        defect_type = parsed["defect_type"]
+        confidence = parsed["confidence"]
+        no_damage = parsed.get("no_damage", False)
+        description = parsed.get("description", "")
+
+        defects = []
+        if not no_damage:
+            defects = [
+                Defect(
+                    type=defect_type,
+                    severity=_severity_for_grade(grade),
+                    confidence=confidence,
+                    description=description or f"Assessed from {len(images)} angles.",
+                ).model_dump(mode="json")
+            ]
+
+        body = {
+            "schema_version": "1.0.0",
+            "unit_id": unit_id,
+            "return_id": return_id,
+            "grade": grade,
+            "grade_numeric": GRADE_NUMERIC.get(grade, 0.5),
+            "category": category.strip().lower().replace("-", "_").replace(" ", "_") or "unknown",
+            "vertical": _infer_vertical(category),
+            "disposition_hint": _disposition_for_grade(grade),
+            "defects": defects,
+            "packaging_state": "sealed" if grade in ("A+", "A") else "opened",
+            "confidence": confidence,
+            "media_hashes": media_hashes,
+            "passport_hash": "",
+            "graded_at": datetime.now(timezone.utc),
+            "model_tier_used": f"bedrock-only+{len(images)}angles",
+            "warranty_months_remaining": 0,
+            "repair_events": [],
+        }
+        body["passport_hash"] = passport_hash(body)
+        return ConditionPassport.model_validate(body)
+
+    except ImportError as exc:
+        raise BedrockGradingError("boto3 is not installed.") from exc
+    except BedrockGradingError:
+        raise
+    except Exception as exc:
+        raise BedrockGradingError(f"Multi-image Bedrock grading failed: {exc}") from exc

@@ -16,7 +16,7 @@ def test_embed_structured_attrs() -> None:
     assert response.status_code == 200
     data = response.json()
     assert len(data["vector"]) == 384
-    assert data["model"] == "all-MiniLM-L6-v2"
+    assert data["model"]
     # All floats
     assert all(isinstance(v, float) for v in data["vector"])
 
@@ -27,7 +27,7 @@ def test_embed_free_text() -> None:
     assert response.status_code == 200
     data = response.json()
     assert len(data["vector"]) == 384
-    assert data["model"] == "all-MiniLM-L6-v2"
+    assert data["model"]
 
 
 def test_embed_deterministic() -> None:

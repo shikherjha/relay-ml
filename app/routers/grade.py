@@ -1,10 +1,12 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from typing import Annotated
 
 from app.core.config import settings
 from app.pipelines.bedrock_tiers import (
     BedrockGradingError,
     grade_bedrock_only,
     grade_mock,
+    grade_multi_image_bedrock,
 )
 from app.pipelines.image_grade import (
     ImageGradingUnavailable,
@@ -117,6 +119,53 @@ async def grade_video(
             detail=str(exc),
         ) from exc
     except (VideoGradingUnavailable, ImageGradingUnavailable, ImageValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/grade-images", response_model=ConditionPassport)
+async def grade_images(
+    images: list[UploadFile] = File(...),
+    unit_id: str = Form(...),
+    category: str = Form(...),
+    return_id: str | None = Form(default=None),
+) -> ConditionPassport:
+    """Grade a product from multiple angle images (1-8 images).
+
+    All images are sent to Bedrock in a single call so the model
+    assesses overall condition from multiple perspectives.
+    """
+    if len(images) > 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maximum 8 images allowed per grading request.",
+        )
+
+    image_bytes_list: list[bytes] = []
+    for img in images:
+        if img.content_type not in SUPPORTED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Only JPEG and PNG images are supported. Got: {img.content_type}",
+            )
+        data = await img.read()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Image '{img.filename}' exceeds the 8 MB limit.",
+            )
+        image_bytes_list.append(data)
+
+    try:
+        return grade_multi_image_bedrock(
+            images=image_bytes_list,
+            unit_id=unit_id,
+            category=category,
+            return_id=return_id,
+        )
+    except BedrockGradingError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),

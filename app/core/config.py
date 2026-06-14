@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     port: int = 8001
     aws_region: str = "ap-south-1"
-    grading_mode: Literal["cnn", "bedrock_only", "mock"] = "cnn"
+    grading_mode: Literal["cnn", "bedrock_only", "mock"] = "bedrock_only"
     bedrock_model_t1: str = "amazon.nova-lite-v1:0"
     bedrock_model_t2: str = ""
     bedrock_model_t3: str = ""
