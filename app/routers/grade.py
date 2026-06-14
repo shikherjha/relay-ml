@@ -31,6 +31,10 @@ async def grade_image(
     unit_id: str = Form(...),
     category: str = Form(...),
     return_id: str | None = Form(default=None),
+    # ADDITIVE order-vs-item verification context (optional → unaffected callers).
+    expected_size: str | None = Form(default=None),
+    expected_color: str | None = Form(default=None),
+    product_title: str | None = Form(default=None),
 ) -> ConditionPassport:
     image_bytes = await image.read()
 
@@ -47,6 +51,9 @@ async def grade_image(
             unit_id=unit_id,
             category=category,
             return_id=return_id,
+            expected_size=expected_size,
+            expected_color=expected_color,
+            product_title=product_title,
         )
 
     if settings.grading_mode == "bedrock_only":
@@ -67,6 +74,9 @@ async def grade_image(
                 unit_id=unit_id,
                 category=category,
                 return_id=return_id,
+                expected_size=expected_size,
+                expected_color=expected_color,
+                product_title=product_title,
             )
         except BedrockGradingError as exc:
             raise HTTPException(
@@ -131,6 +141,10 @@ async def grade_images(
     unit_id: str = Form(...),
     category: str = Form(...),
     return_id: str | None = Form(default=None),
+    # ADDITIVE order-vs-item verification context (optional → unaffected callers).
+    expected_size: str | None = Form(default=None),
+    expected_color: str | None = Form(default=None),
+    product_title: str | None = Form(default=None),
 ) -> ConditionPassport:
     """Grade a product from multiple angle images (1-8 images).
 
@@ -164,6 +178,9 @@ async def grade_images(
             unit_id=unit_id,
             category=category,
             return_id=return_id,
+            expected_size=expected_size,
+            expected_color=expected_color,
+            product_title=product_title,
         )
     except BedrockGradingError as exc:
         raise HTTPException(
@@ -182,6 +199,10 @@ async def grade_and_price(
     age_days: float = Form(...),
     vertical: str | None = Form(default=None),
     return_id: str | None = Form(default=None),
+    # ADDITIVE order-vs-item verification context (optional → unaffected callers).
+    expected_size: str | None = Form(default=None),
+    expected_color: str | None = Form(default=None),
+    product_title: str | None = Form(default=None),
 ) -> dict:
     """Grade a product and compute a resale price range.
 
@@ -217,6 +238,9 @@ async def grade_and_price(
                     unit_id=unit_id,
                     category=category,
                     return_id=return_id,
+                    expected_size=expected_size,
+                    expected_color=expected_color,
+                    product_title=product_title,
                 )
             except BedrockGradingError as exc:
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
@@ -228,6 +252,9 @@ async def grade_and_price(
                     unit_id=unit_id,
                     category=category,
                     return_id=return_id,
+                    expected_size=expected_size,
+                    expected_color=expected_color,
+                    product_title=product_title,
                 )
             except BedrockGradingError as exc:
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc

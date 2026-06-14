@@ -37,6 +37,22 @@ class Defect(BaseModel):
     description: str | None = None
 
 
+class Verification(BaseModel):
+    """ADDITIVE (return-grading decisions): cheap, prompt-only order-vs-item check.
+
+    relay-api passes the order's ``expected_color`` / ``product_title`` (+ size)
+    as Form fields on the grade endpoints. The grade prompt is enriched to ALSO
+    report whether the photographed item's colour and identity match — no second
+    image, no extra Bedrock call. Defaults to "unknown" when the caller sends no
+    expected context (so existing callers are unaffected).
+    """
+
+    color_match: Literal["match", "mismatch", "unknown"] = "unknown"
+    item_match: Literal["match", "mismatch", "unknown"] = "unknown"
+    observed_color: str | None = None
+    expected_color: str | None = None
+
+
 class ConditionPassport(BaseModel):
     schema_version: Literal["1.0.0"] = "1.0.0"
     unit_id: str
@@ -63,6 +79,8 @@ class ConditionPassport(BaseModel):
     model_tier_used: str
     warranty_months_remaining: int = Field(default=0, ge=0)
     repair_events: list[dict] = Field(default_factory=list)
+    # ADDITIVE: order-vs-item verification (None unless expected context sent).
+    verification: Verification | None = None
 
 
 class HealthResponse(BaseModel):
@@ -152,6 +170,8 @@ class GradeAndPriceResponse(BaseModel):
     passport_hash: str = ""
     graded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     model_tier_used: str
+    # ADDITIVE: order-vs-item verification (None unless expected context sent).
+    verification: Verification | None = None
 
     # Resale pricing fields (Track B)
     resale_grade: Literal["Like New", "Very Good", "Good", "Acceptable"]

@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.schemas.passport import ConditionPassport, Defect, Grade
+from app.schemas.passport import ConditionPassport, Defect, Grade, Verification
 from app.utils.hash import passport_hash, sha256_hex
 
 
@@ -43,11 +43,17 @@ def grade_bedrock_only(
     unit_id: str,
     category: str,
     return_id: str | None,
+    expected_size: str | None = None,
+    expected_color: str | None = None,
+    product_title: str | None = None,
 ) -> ConditionPassport:
     """Grade an image using Bedrock Nova Lite directly (no CNN).
 
     This is the demo-safe escape hatch: real grades without trained model weights.
     Slower and pricier per call, but always available if AWS credentials are configured.
+
+    ``expected_*`` are ADDITIVE order-vs-item context (no extra image/call): when
+    present, the prompt also reports colour/item match → a ``verification`` block.
     """
     from app.core.config import settings
 
@@ -62,7 +68,10 @@ def grade_bedrock_only(
         )
 
         # Build the prompt for structured grading
-        prompt = _build_grading_prompt(category)
+        prompt = _build_grading_prompt(
+            category, expected_color=expected_color,
+            product_title=product_title, expected_size=expected_size,
+        )
 
         # Detect image format from bytes
         image_format = "jpeg"  # default
@@ -135,6 +144,11 @@ def grade_bedrock_only(
             "warranty_months_remaining": 0,
             "repair_events": [],
         }
+        verification = _build_verification(
+            parsed, expected_color=expected_color, product_title=product_title,
+        )
+        if verification is not None:
+            body["verification"] = verification
         body["passport_hash"] = passport_hash(body)
         return ConditionPassport.model_validate(body)
 
@@ -152,6 +166,9 @@ def grade_mock(
     unit_id: str,
     category: str,
     return_id: str | None,
+    expected_size: str | None = None,
+    expected_color: str | None = None,
+    product_title: str | None = None,
 ) -> ConditionPassport:
     """Return a deterministic stub passport (no AI). For relay-api local dev."""
     media_hash = sha256_hex(image_bytes)
@@ -182,11 +199,53 @@ def grade_mock(
         "warranty_months_remaining": 0,
         "repair_events": [],
     }
+    verification = _build_verification(
+        {"observed_color": expected_color,
+         "color_match": "match" if expected_color else "unknown",
+         "item_match": "match" if product_title else "unknown"},
+        expected_color=expected_color, product_title=product_title,
+    )
+    if verification is not None:
+        body["verification"] = verification
     body["passport_hash"] = passport_hash(body)
     return ConditionPassport.model_validate(body)
 
 
-def _build_grading_prompt(category: str) -> str:
+def _verification_prompt_suffix(
+    *,
+    expected_color: str | None,
+    product_title: str | None,
+    expected_size: str | None,
+) -> str:
+    """ADDITIVE order-vs-item verification instructions (prompt-only, no extra
+    image / Bedrock call). Returns "" when the caller sent no expected context,
+    so the base prompt + existing callers are unaffected."""
+    if not (expected_color or product_title):
+        return ""
+    expectations = []
+    if product_title:
+        expectations.append(f'the buyer ordered: "{product_title}"')
+    if expected_color:
+        expectations.append(f'expected colour: "{expected_color}"')
+    if expected_size:
+        expectations.append(f'expected size: "{expected_size}"')
+    ctx = "; ".join(expectations)
+    return f"""
+
+ALSO verify the photographed item against the order ({ctx}). Add these JSON fields:
+- "observed_color": the dominant colour you actually see (one or two words), or null
+- "color_match": "match" if the observed colour matches the expected colour, "mismatch" if clearly different, "unknown" if you cannot tell or no colour was expected
+- "item_match": "match" if the item looks like the ordered product, "mismatch" if it is clearly a different kind of product, "unknown" if unsure
+Judge colour/item match ONLY from this same image — do not invent details."""
+
+
+def _build_grading_prompt(
+    category: str,
+    *,
+    expected_color: str | None = None,
+    product_title: str | None = None,
+    expected_size: str | None = None,
+) -> str:
     """Build the structured extraction prompt for Bedrock."""
     return f"""You are an AI product condition grader for a circular commerce platform.
 
@@ -206,9 +265,44 @@ Return a JSON object with these fields:
 - "description": brief description of the product condition (1-2 sentences)
 
 Important: If the product looks new or undamaged, grade it A+ or A with defect_type "none".
-Only report defects you can actually see in the image.
+Only report defects you can actually see in the image.{_verification_prompt_suffix(expected_color=expected_color, product_title=product_title, expected_size=expected_size)}
 
 Return ONLY valid JSON, no other text."""
+
+
+def _build_verification(
+    parsed: dict,
+    *,
+    expected_color: str | None,
+    product_title: str | None,
+) -> dict | None:
+    """Assemble the verification block from the parsed grade response. Returns
+    None when the caller sent no expected context (additive / unaffected)."""
+    if not (expected_color or product_title):
+        return None
+    states = {"match", "mismatch", "unknown"}
+    observed = parsed.get("observed_color")
+    observed = observed.strip() if isinstance(observed, str) and observed.strip() else None
+
+    color_match = parsed.get("color_match")
+    if not expected_color:
+        # Nothing to compare against → never assert a (mis)match on colour.
+        color_match = "unknown"
+    elif color_match not in states:
+        if observed:
+            e, o = expected_color.strip().lower(), observed.lower()
+            color_match = "match" if (e == o or e in o or o in e) else "mismatch"
+        else:
+            color_match = "unknown"
+
+    item_match = parsed.get("item_match")
+    if item_match not in states:
+        item_match = "unknown"
+
+    return Verification(
+        color_match=color_match, item_match=item_match,
+        observed_color=observed, expected_color=expected_color,
+    ).model_dump(mode="json")
 
 
 def _parse_grading_response(response_text: str, category: str) -> dict:
@@ -247,6 +341,11 @@ def _parse_grading_response(response_text: str, category: str) -> dict:
             "confidence": confidence,
             "no_damage": no_damage,
             "description": description,
+            # Additive order-vs-item verification fields (present only when the
+            # prompt asked for them; ignored otherwise).
+            "observed_color": data.get("observed_color"),
+            "color_match": data.get("color_match"),
+            "item_match": data.get("item_match"),
         }
     except (json.JSONDecodeError, TypeError, ValueError):
         # Fallback: return conservative defaults
@@ -444,11 +543,17 @@ def grade_multi_image_bedrock(
     unit_id: str,
     category: str,
     return_id: str | None,
+    expected_size: str | None = None,
+    expected_color: str | None = None,
+    product_title: str | None = None,
 ) -> ConditionPassport:
     """Grade a product from multiple angle images in a single Bedrock call.
 
     Sends all images together so the model can assess overall condition
     from multiple perspectives. Worst defect wins (like video aggregation).
+
+    ``expected_*`` are ADDITIVE order-vs-item context → a ``verification`` block
+    (prompt-only, no extra image/call).
     """
     from app.core.config import settings
 
@@ -486,7 +591,7 @@ Return a JSON object with:
 - "description": brief description covering what you see across all angles
 
 Important: Multiple angles should INCREASE your confidence. If one angle shows damage not visible from others, report it.
-Only report defects you can actually see. If the product looks new from all angles, grade A+ or A with "none".
+Only report defects you can actually see. If the product looks new from all angles, grade A+ or A with "none".{_verification_prompt_suffix(expected_color=expected_color, product_title=product_title, expected_size=expected_size)}
 
 Return ONLY valid JSON, no other text."""
 
@@ -546,6 +651,11 @@ Return ONLY valid JSON, no other text."""
             "warranty_months_remaining": 0,
             "repair_events": [],
         }
+        verification = _build_verification(
+            parsed, expected_color=expected_color, product_title=product_title,
+        )
+        if verification is not None:
+            body["verification"] = verification
         body["passport_hash"] = passport_hash(body)
         return ConditionPassport.model_validate(body)
 
