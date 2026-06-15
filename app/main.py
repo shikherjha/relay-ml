@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from app.core.config import settings
-from app.routers import cluster, embed, fit, grade
+from app.routers import cluster, embed, fit, grade, match
 from app.schemas.passport import HealthResponse
 
 
@@ -50,3 +50,4 @@ app.include_router(grade.router)
 app.include_router(fit.router)
 app.include_router(embed.router)
 app.include_router(cluster.router)
+app.include_router(match.router)
