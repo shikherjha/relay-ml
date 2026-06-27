@@ -56,6 +56,43 @@ def grade_bedrock_only(
     present, the prompt also reports colour/item match → a ``verification`` block.
     """
     from app.core.config import settings
+    from app.pipelines.prompt_registry import build_grading_prompt
+    from app.pipelines.quality_gates import check_image_quality, confidence_band
+    from app.schemas.passport import GradingAudit
+
+    # Track D §21.2: capture-quality gate — reject unusable media BEFORE hitting Bedrock.
+    quality = check_image_quality(image_bytes)
+    if not quality.passed and quality.band == "reject_reupload":
+        # Return a minimal passport with the rejection info in grading_audit.
+        body = {
+            "schema_version": "1.0.0",
+            "unit_id": unit_id,
+            "return_id": return_id,
+            "grade": "D",
+            "grade_numeric": 0.2,
+            "category": category.strip().lower().replace("-", "_").replace(" ", "_") or "unknown",
+            "vertical": _infer_vertical(category),
+            "disposition_hint": "recycle",
+            "defects": [],
+            "packaging_state": "opened",
+            "confidence": 0.0,
+            "media_hashes": [sha256_hex(image_bytes)],
+            "passport_hash": "",
+            "graded_at": datetime.now(timezone.utc),
+            "model_tier_used": "rejected",
+            "warranty_months_remaining": 0,
+            "repair_events": [],
+            "grading_audit": GradingAudit(
+                bedrock_model_id=None,
+                prompt_version=None,
+                confidence_band="reject_reupload",
+                fallback_reason="capture_quality_failed",
+                expected_context_used=bool(expected_color or product_title),
+                quality_issues=quality.issues,
+            ).model_dump(mode="json"),
+        }
+        body["passport_hash"] = passport_hash(body)
+        return ConditionPassport.model_validate(body)
 
     media_hash = sha256_hex(image_bytes)
 
@@ -67,10 +104,12 @@ def grade_bedrock_only(
             region_name=settings.aws_region,
         )
 
-        # Build the prompt for structured grading
-        prompt = _build_grading_prompt(
-            category, expected_color=expected_color,
-            product_title=product_title, expected_size=expected_size,
+        # Track D §21.2: use prompt registry for versioned, auditable prompts.
+        verification_suffix = _verification_prompt_suffix(
+            expected_color=expected_color, product_title=product_title, expected_size=expected_size,
+        )
+        prompt, prompt_version = build_grading_prompt(
+            category, _infer_vertical(category), verification_suffix=verification_suffix,
         )
 
         # Detect image format from bytes
@@ -116,11 +155,13 @@ def grade_bedrock_only(
         # Build defects list — empty if no damage detected
         defects = []
         if not no_damage:
+            bbox = parsed.get("bbox")  # Track D: preserve bbox if Nova returns it
             defects = [
                 Defect(
                     type=defect_type,
                     severity=_severity_for_grade(grade),
                     confidence=confidence,
+                    bbox=bbox,
                     description=description or f"Bedrock Nova Lite detected {defect_type.replace('_', ' ')}.",
                 ).model_dump(mode="json")
             ]
@@ -143,6 +184,15 @@ def grade_bedrock_only(
             "model_tier_used": "bedrock-only",
             "warranty_months_remaining": 0,
             "repair_events": [],
+            # Track D §21.2: audit metadata for every grade.
+            "grading_audit": GradingAudit(
+                bedrock_model_id=settings.bedrock_model_t1,
+                prompt_version=prompt_version,
+                confidence_band=confidence_band(confidence),
+                fallback_reason=None,
+                expected_context_used=bool(expected_color or product_title),
+                quality_issues=quality.issues if not quality.passed else [],
+            ).model_dump(mode="json"),
         }
         verification = _build_verification(
             parsed, expected_color=expected_color, product_title=product_title,
@@ -346,6 +396,8 @@ def _parse_grading_response(response_text: str, category: str) -> dict:
             "observed_color": data.get("observed_color"),
             "color_match": data.get("color_match"),
             "item_match": data.get("item_match"),
+            # Track D §21.2: bounding box if Nova provides one.
+            "bbox": data.get("bbox"),
         }
     except (json.JSONDecodeError, TypeError, ValueError):
         # Fallback: return conservative defaults
