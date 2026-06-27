@@ -53,6 +53,20 @@ class Verification(BaseModel):
     expected_color: str | None = None
 
 
+class GradingAudit(BaseModel):
+    """Audit metadata for every grade response (Track D §21.2).
+    
+    Enables prompt versioning, confidence bands, and production monitoring.
+    Old clients can safely ignore this — it's additive.
+    """
+    bedrock_model_id: str | None = None
+    prompt_version: str | None = None
+    confidence_band: Literal["auto_pass", "needs_review", "reject_reupload"] | None = None
+    fallback_reason: str | None = None
+    expected_context_used: bool = False
+    quality_issues: list[str] = Field(default_factory=list)
+
+
 class ConditionPassport(BaseModel):
     schema_version: Literal["1.0.0"] = "1.0.0"
     unit_id: str
@@ -81,6 +95,8 @@ class ConditionPassport(BaseModel):
     repair_events: list[dict] = Field(default_factory=list)
     # ADDITIVE: order-vs-item verification (None unless expected context sent).
     verification: Verification | None = None
+    # ADDITIVE (Track D §21.2): grading audit metadata for production monitoring.
+    grading_audit: GradingAudit | None = None
 
 
 class HealthResponse(BaseModel):
